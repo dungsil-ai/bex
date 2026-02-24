@@ -1,31 +1,15 @@
 // LSware 휴가신청 자동입력 Content Script
 
-(async function() {
+(function() {
   'use strict';
 
-  // 설정 불러오기
-  const settings = await chrome.storage.local.get([
-    'department',
-    'team', 
-    'name',
-    'enabled',
-    'reasonPresets',
-    'defaultPresetIndex',
-    'vacationStartDate',
-    'vacationEndDate'
-  ]);
+  // URL 패턴: 휴가신청 폼 페이지
+  const FORM_URL_PATTERN = /\/app\/approval\/document\/new\//;
 
-  // 자동입력이 비활성화되어 있으면 종료
-  if (settings.enabled === false) {
-    console.log('[LSware 자동입력] 비활성화 상태입니다.');
-    return;
-  }
-
-  const presets = settings.reasonPresets || [];
-  const defaultPresetIndex = settings.defaultPresetIndex ?? -1;
-  const defaultPreset = (defaultPresetIndex >= 0 && defaultPresetIndex < presets.length) 
-    ? presets[defaultPresetIndex] 
-    : null;
+  // 자동입력 상태 추적
+  let filled = false;
+  let filledUrl = null;
+  let checkTimeout = null;
 
   // 입력 필드 셀렉터
   const SELECTORS = {
@@ -44,6 +28,20 @@
     endDate: ['#editorForm_8', 'input[name="editorForm_8"]'],
     durationDays: ['#editorForm_9', 'input[name="editorForm_9"]']
   };
+
+  // 설정 불러오기 (매 실행마다 최신 설정 로드)
+  function loadSettings() {
+    return chrome.storage.local.get([
+      'department',
+      'team', 
+      'name',
+      'enabled',
+      'reasonPresets',
+      'defaultPresetIndex',
+      'vacationStartDate',
+      'vacationEndDate'
+    ]);
+  }
 
   // Autocomplete UI 스타일 주입
   function injectStyles() {
@@ -100,7 +98,7 @@
     constructor(inputElement, items, defaultStr) {
       this.input = inputElement;
       this.items = items;
-      this.defaultStr = defaultStr; // data-defaultstr 값 (무시할 기본값)
+      this.defaultStr = defaultStr;
       this.filteredItems = items;
       this.selectedIndex = -1;
       this.dropdown = null;
@@ -110,11 +108,9 @@
     }
     
     init() {
-      // 이벤트 리스너 등록
       this.input.addEventListener('focus', () => this.onFocus());
       this.input.addEventListener('click', () => this.onFocus());
       this.input.addEventListener('blur', (e) => {
-        // 드롭다운 클릭 시 blur 무시
         setTimeout(() => this.hide(), 150);
       });
       this.input.addEventListener('input', () => this.filter());
@@ -167,13 +163,11 @@
       this.selectedIndex = -1;
     }
     
-    // 현재 입력값이 기본값(defaultStr)인지 확인
     isDefaultValue(value) {
       return value === this.defaultStr;
     }
     
     filter() {
-      // 필터링 없이 항상 전체 목록 표시
       this.filteredItems = this.items;
       this.selectedIndex = -1;
       this.render();
@@ -183,8 +177,6 @@
       if (!this.dropdown) return;
       
       this.dropdown.innerHTML = '';
-      
-
       
       this.filteredItems.forEach((item, index) => {
         const div = document.createElement('div');
@@ -272,7 +264,6 @@
       const value = this.filteredItems[index];
       this.input.value = value;
       
-      // React/Vue 등 프레임워크 호환을 위한 이벤트 발생
       this.input.dispatchEvent(new Event('input', { bubbles: true }));
       this.input.dispatchEvent(new Event('change', { bubbles: true }));
       
@@ -281,7 +272,7 @@
     }
   }
 
-  // DOM이 완전히 로드될 때까지 대기하는 함수
+  // 요소 검색
   function findElement(selectors) {
     const selectorList = Array.isArray(selectors) ? selectors : [selectors];
     for (const selector of selectorList) {
@@ -291,6 +282,7 @@
     return null;
   }
 
+  // 요소가 나타날 때까지 대기 (MutationObserver)
   function waitForElement(selectors, timeout = 10000) {
     const selectorList = Array.isArray(selectors) ? selectors : [selectors];
     return new Promise((resolve, reject) => {
@@ -320,11 +312,6 @@
     });
   }
 
-  // .edit 클래스가 추가될 때까지 대기 (input이 활성화된 상태)
-  function waitForEditableInput(selectors, timeout = 10000) {
-    return waitForElement(selectors, timeout);
-  }
-
   // 입력 필드에 값을 설정하고 이벤트 발생
   function setInputValue(element, value) {
     if (!element || value === undefined || value === null) return false;
@@ -341,7 +328,6 @@
 
     return true;
   }
-
 
   function parseIsoDate(value) {
     if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
@@ -394,11 +380,23 @@
 
   // 메인 자동입력 로직
   async function autoFill() {
+    const settings = await loadSettings();
+
+    if (settings.enabled === false) {
+      console.log('[LSware 자동입력] 비활성화 상태입니다.');
+      return;
+    }
+
+    const presets = settings.reasonPresets || [];
+    const defaultPresetIndex = settings.defaultPresetIndex ?? -1;
+    const defaultPreset = (defaultPresetIndex >= 0 && defaultPresetIndex < presets.length) 
+      ? presets[defaultPresetIndex] 
+      : null;
+
     console.log('[LSware 자동입력] 자동입력을 시작합니다...');
     console.log('[LSware 자동입력] 프리셋 개수:', presets.length);
     console.log('[LSware 자동입력] 기본 프리셋:', defaultPreset || '없음');
 
-    // 스타일 주입
     injectStyles();
 
     try {
@@ -416,7 +414,7 @@
         
         const titleValue = titleParts.join(' / ');
         
-        const titleInput = await waitForEditableInput(SELECTORS.title);
+        const titleInput = await waitForElement(SELECTORS.title);
         if (setInputValue(titleInput, titleValue)) {
           console.log('[LSware 자동입력] 제목 입력 완료:', titleValue);
         }
@@ -428,8 +426,8 @@
 
       if (startDate && endDate && startDate <= endDate) {
         const [startDateInput, endDateInput] = await Promise.all([
-          waitForEditableInput(SELECTORS.startDate),
-          waitForEditableInput(SELECTORS.endDate)
+          waitForElement(SELECTORS.startDate),
+          waitForElement(SELECTORS.endDate)
         ]);
 
         setDateInputValue(startDateInput, startDate);
@@ -447,17 +445,15 @@
 
       // 휴가사유 필드 처리
       if (presets.length > 0) {
-        const reasonInput = await waitForEditableInput(SELECTORS.reason);
+        const reasonInput = await waitForElement(SELECTORS.reason);
         const defaultStr = reasonInput.getAttribute('data-defaultstr') || '';
         
-        // 기본 프리셋이 있으면 자동 입력
         if (defaultPreset) {
           if (setInputValue(reasonInput, defaultPreset)) {
             console.log('[LSware 자동입력] 기본 휴가사유 입력 완료:', defaultPreset);
           }
         }
         
-        // Autocomplete 연결
         new Autocomplete(reasonInput, presets, defaultStr);
         console.log('[LSware 자동입력] 휴가사유 Autocomplete 활성화:', presets.length, '개 프리셋');
       } else {
@@ -467,9 +463,46 @@
       console.log('[LSware 자동입력] 초기화 완료');
     } catch (error) {
       console.error('[LSware 자동입력] 오류 발생:', error.message);
+      // 실패 시 재시도 가능하도록 상태 리셋
+      filled = false;
+      filledUrl = null;
     }
   }
 
-  // 페이지 로드 완료 후 약간의 지연을 두고 실행
-  setTimeout(autoFill, 500);
+  // 폼 감지 및 자동입력 시도
+  function checkAndFill() {
+    const currentUrl = location.href;
+
+    // URL이 변경되면 상태 리셋 (다른 폼 페이지 또는 재진입)
+    if (filledUrl && filledUrl !== currentUrl) {
+      filled = false;
+      filledUrl = null;
+    }
+
+    // 폼 페이지가 아니면 무시
+    if (!FORM_URL_PATTERN.test(location.pathname)) return;
+
+    // 이미 입력 완료했으면 무시
+    if (filled) return;
+
+    // 폼 핵심 요소(제목 필드)가 아직 없으면 대기
+    if (!findElement(SELECTORS.title)) return;
+
+    // 자동입력 실행
+    filled = true;
+    filledUrl = currentUrl;
+    autoFill();
+  }
+
+  // DOM 변경 감시 (debounced) — API 응답 후 폼 생성 감지
+  const observer = new MutationObserver(() => {
+    if (filled) return;
+    if (checkTimeout) clearTimeout(checkTimeout);
+    checkTimeout = setTimeout(checkAndFill, 200);
+  });
+
+  observer.observe(document.body, { childList: true, subtree: true });
+
+  // 초기 체크 (이미 폼 페이지에 있는 경우 — 새로고침 시)
+  checkAndFill();
 })();
