@@ -343,12 +343,16 @@
   }
 
 
-  function parseIsoDate(value) {
-    if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+  function formatDateForTitle(date) {
+    if (!(date instanceof Date)) return '';
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}.${month}.${day}`;
+  }
 
-    const [year, month, day] = value.split('-').map(Number);
+  function normalizeDate(year, month, day) {
     const date = new Date(year, month - 1, day);
-
     if (
       date.getFullYear() !== year ||
       date.getMonth() !== month - 1 ||
@@ -356,8 +360,36 @@
     ) {
       return null;
     }
-
     return date;
+  }
+
+  function parseDateText(value) {
+    if (!value) return null;
+
+    const dateMatch = value.trim().match(/^(\d{4})[./-](\d{1,2})[./-](\d{1,2})$/);
+    if (!dateMatch) return null;
+
+    return normalizeDate(Number(dateMatch[1]), Number(dateMatch[2]), Number(dateMatch[3]));
+  }
+
+  function getDateFromInput(element) {
+    if (!element) return null;
+
+    const win = element.ownerDocument?.defaultView;
+    const hasJqueryDatepicker = Boolean(
+      win?.jQuery &&
+      typeof win.jQuery === 'function' &&
+      typeof win.jQuery(element).datepicker === 'function'
+    );
+
+    if (hasJqueryDatepicker) {
+      const picked = win.jQuery(element).datepicker('getDate');
+      if (picked instanceof Date && !Number.isNaN(picked.getTime())) {
+        return normalizeDate(picked.getFullYear(), picked.getMonth() + 1, picked.getDate());
+      }
+    }
+
+    return parseDateText(element.value);
   }
 
   function calculateDurationDays(startDate, endDate) {
@@ -392,6 +424,20 @@
     return true;
   }
 
+  function buildTitle(startDate, durationDays) {
+    const titleParts = [settings.department, settings.team, settings.name].filter(Boolean);
+
+    if (startDate instanceof Date) {
+      titleParts.push(formatDateForTitle(startDate));
+    }
+
+    if (durationDays && durationDays > 0) {
+      titleParts.push(`${durationDays}일`);
+    }
+
+    return titleParts.join(' / ');
+  }
+
   // 메인 자동입력 로직
   async function autoFill() {
     console.log('[LSware 자동입력] 자동입력을 시작합니다...');
@@ -402,25 +448,43 @@
     injectStyles();
 
     try {
-      // 제목 필드 입력
-      if (settings.department || settings.team || settings.name) {
-        const today = new Date();
-        const dateStr = `${today.getFullYear()}.${String(today.getMonth() + 1).padStart(2, '0')}.${String(today.getDate()).padStart(2, '0')}`;
-        
-        const titleParts = [
-          settings.department,
-          settings.team,
-          settings.name,
-          dateStr
-        ].filter(Boolean);
-        
-        const titleValue = titleParts.join(' / ');
-        
-        const titleInput = await waitForEditableInput(SELECTORS.title);
-        if (setInputValue(titleInput, titleValue)) {
-          console.log('[LSware 자동입력] 제목 입력 완료:', titleValue);
+      const [titleInput, startDateInput, endDateInput] = await Promise.all([
+        waitForEditableInput(SELECTORS.title),
+        waitForEditableInput(SELECTORS.startDate),
+        waitForEditableInput(SELECTORS.endDate)
+      ]);
+      const durationInput = findElement(SELECTORS.durationDays);
+
+      const updateDurationAndTitle = () => {
+        const startDate = getDateFromInput(startDateInput);
+        const endDate = getDateFromInput(endDateInput);
+
+        let durationDays = null;
+        if (startDate && endDate && startDate <= endDate) {
+          durationDays = calculateDurationDays(startDate, endDate);
+          if (durationInput) {
+            setInputValue(durationInput, String(durationDays));
+          }
         }
-      }
+
+        const titleValue = buildTitle(startDate, durationDays);
+        if (titleValue) {
+          setInputValue(titleInput, titleValue);
+        }
+      };
+
+      // 신청 당일 자동 입력
+      const today = new Date();
+      setDateInputValue(startDateInput, today);
+      setDateInputValue(endDateInput, today);
+      updateDurationAndTitle();
+      console.log('[LSware 자동입력] 신청 당일 기준으로 휴가기간/제목 자동입력 완료');
+
+      // 사용자가 기간 변경 시 일수와 제목 동기화
+      ['input', 'change', 'blur'].forEach((eventName) => {
+        startDateInput.addEventListener(eventName, updateDurationAndTitle);
+        endDateInput.addEventListener(eventName, updateDurationAndTitle);
+      });
 
       // 휴가 기간 자동입력 (설정된 경우)
       const startDate = parseIsoDate(settings.vacationStartDate);
