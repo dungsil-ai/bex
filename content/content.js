@@ -10,7 +10,9 @@
     'name',
     'enabled',
     'reasonPresets',
-    'defaultPresetIndex'
+    'defaultPresetIndex',
+    'vacationStartDate',
+    'vacationEndDate'
   ]);
 
   // 자동입력이 비활성화되어 있으면 종료
@@ -37,7 +39,10 @@
       '#editorForm_6',
       'textarea[name="editorForm_6"]',
       'textarea[data-defaultstr="(가급적 사유를 구체적으로 기재함)"]'
-    ]
+    ],
+    startDate: ['#editorForm_7', 'input[name="editorForm_7"]'],
+    endDate: ['#editorForm_8', 'input[name="editorForm_8"]'],
+    durationDays: ['#editorForm_9', 'input[name="editorForm_9"]']
   };
 
   // Autocomplete UI 스타일 주입
@@ -337,6 +342,56 @@
     return true;
   }
 
+
+  function parseIsoDate(value) {
+    if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+
+    const [year, month, day] = value.split('-').map(Number);
+    const date = new Date(year, month - 1, day);
+
+    if (
+      date.getFullYear() !== year ||
+      date.getMonth() !== month - 1 ||
+      date.getDate() !== day
+    ) {
+      return null;
+    }
+
+    return date;
+  }
+
+  function calculateDurationDays(startDate, endDate) {
+    const msPerDay = 24 * 60 * 60 * 1000;
+    const diff = Math.floor((endDate - startDate) / msPerDay);
+    return diff + 1;
+  }
+
+  function setDateInputValue(element, date) {
+    if (!element || !(date instanceof Date)) return false;
+
+    const win = element.ownerDocument?.defaultView;
+    const hasJqueryDatepicker = Boolean(
+      win?.jQuery &&
+      typeof win.jQuery === 'function' &&
+      typeof win.jQuery(element).datepicker === 'function'
+    );
+
+    if (hasJqueryDatepicker) {
+      win.jQuery(element).datepicker('setDate', date);
+    } else {
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const day = String(date.getDate()).padStart(2, '0');
+      element.value = `${year}-${month}-${day}`;
+    }
+
+    element.dispatchEvent(new Event('input', { bubbles: true }));
+    element.dispatchEvent(new Event('change', { bubbles: true }));
+    element.dispatchEvent(new Event('blur', { bubbles: true }));
+
+    return true;
+  }
+
   // 메인 자동입력 로직
   async function autoFill() {
     console.log('[LSware 자동입력] 자동입력을 시작합니다...');
@@ -365,6 +420,29 @@
         if (setInputValue(titleInput, titleValue)) {
           console.log('[LSware 자동입력] 제목 입력 완료:', titleValue);
         }
+      }
+
+      // 휴가 기간 자동입력 (설정된 경우)
+      const startDate = parseIsoDate(settings.vacationStartDate);
+      const endDate = parseIsoDate(settings.vacationEndDate);
+
+      if (startDate && endDate && startDate <= endDate) {
+        const [startDateInput, endDateInput] = await Promise.all([
+          waitForEditableInput(SELECTORS.startDate),
+          waitForEditableInput(SELECTORS.endDate)
+        ]);
+
+        setDateInputValue(startDateInput, startDate);
+        setDateInputValue(endDateInput, endDate);
+
+        const durationInput = findElement(SELECTORS.durationDays);
+        if (durationInput) {
+          setInputValue(durationInput, String(calculateDurationDays(startDate, endDate)));
+        }
+
+        console.log('[LSware 자동입력] 휴가 기간 입력 완료');
+      } else if (settings.vacationStartDate || settings.vacationEndDate) {
+        console.warn('[LSware 자동입력] 휴가 기간 설정값이 올바르지 않습니다.');
       }
 
       // 휴가사유 필드 처리
