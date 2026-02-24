@@ -10,7 +10,9 @@
     'name',
     'enabled',
     'reasonPresets',
-    'defaultPresetIndex'
+    'defaultPresetIndex',
+    'vacationStartDate',
+    'vacationEndDate'
   ]);
 
   // 자동입력이 비활성화되어 있으면 종료
@@ -483,6 +485,29 @@
         startDateInput.addEventListener(eventName, updateDurationAndTitle);
         endDateInput.addEventListener(eventName, updateDurationAndTitle);
       });
+
+      // 휴가 기간 자동입력 (설정된 경우)
+      const startDate = parseIsoDate(settings.vacationStartDate);
+      const endDate = parseIsoDate(settings.vacationEndDate);
+
+      if (startDate && endDate && startDate <= endDate) {
+        const [startDateInput, endDateInput] = await Promise.all([
+          waitForEditableInput(SELECTORS.startDate),
+          waitForEditableInput(SELECTORS.endDate)
+        ]);
+
+        setDateInputValue(startDateInput, startDate);
+        setDateInputValue(endDateInput, endDate);
+
+        const durationInput = findElement(SELECTORS.durationDays);
+        if (durationInput) {
+          setInputValue(durationInput, String(calculateDurationDays(startDate, endDate)));
+        }
+
+        console.log('[LSware 자동입력] 휴가 기간 입력 완료');
+      } else if (settings.vacationStartDate || settings.vacationEndDate) {
+        console.warn('[LSware 자동입력] 휴가 기간 설정값이 올바르지 않습니다.');
+      }
 
       // 휴가사유 필드 처리
       if (presets.length > 0) {
