@@ -27,8 +27,20 @@
 
   // 입력 필드 셀렉터
   const SELECTORS = {
-    title: 'input[data-defaultstr=" 본부 / 팀명 / 이름 / 휴가일자"]',
-    reason: 'textarea[data-defaultstr="(가급적 사유를 구체적으로 기재함)"]'
+    title: [
+      '#subject',
+      'input[name="subject"]',
+      'input[data-defaultstr=" 본부 / 팀명 / 이름 / 휴가일/일수"]',
+      'input[data-defaultstr=" 본부 / 팀명 / 이름 / 휴가일자"]'
+    ],
+    reason: [
+      '#editorForm_6',
+      'textarea[name="editorForm_6"]',
+      'textarea[data-defaultstr="(가급적 사유를 구체적으로 기재함)"]'
+    ],
+    startDate: ['#editorForm_7', 'input[name="editorForm_7"]'],
+    endDate: ['#editorForm_8', 'input[name="editorForm_8"]'],
+    durationDays: ['#editorForm_9', 'input[name="editorForm_9"]']
   };
 
   // Autocomplete UI 스타일 주입
@@ -268,16 +280,26 @@
   }
 
   // DOM이 완전히 로드될 때까지 대기하는 함수
-  function waitForElement(selector, timeout = 10000) {
+  function findElement(selectors) {
+    const selectorList = Array.isArray(selectors) ? selectors : [selectors];
+    for (const selector of selectorList) {
+      const el = document.querySelector(selector);
+      if (el) return el;
+    }
+    return null;
+  }
+
+  function waitForElement(selectors, timeout = 10000) {
+    const selectorList = Array.isArray(selectors) ? selectors : [selectors];
     return new Promise((resolve, reject) => {
-      const element = document.querySelector(selector);
+      const element = findElement(selectorList);
       if (element) {
         resolve(element);
         return;
       }
 
       const observer = new MutationObserver((mutations, obs) => {
-        const el = document.querySelector(selector);
+        const el = findElement(selectorList);
         if (el) {
           obs.disconnect();
           resolve(el);
@@ -291,49 +313,14 @@
 
       setTimeout(() => {
         observer.disconnect();
-        reject(new Error(`Element not found: ${selector}`));
+        reject(new Error(`Element not found: ${selectorList.join(' | ')}`));
       }, timeout);
     });
   }
 
   // .edit 클래스가 추가될 때까지 대기 (input이 활성화된 상태)
-  function waitForEditableInput(selector, timeout = 10000) {
-    return new Promise((resolve, reject) => {
-      // 먼저 요소 찾기
-      const checkElement = () => {
-        const element = document.querySelector(selector);
-        if (element) {
-          return element;
-        }
-        return null;
-      };
-
-      const element = checkElement();
-      if (element) {
-        resolve(element);
-        return;
-      }
-
-      const observer = new MutationObserver((mutations, obs) => {
-        const el = checkElement();
-        if (el) {
-          obs.disconnect();
-          resolve(el);
-        }
-      });
-
-      observer.observe(document.body, {
-        childList: true,
-        subtree: true,
-        attributes: true,
-        attributeFilter: ['class']
-      });
-
-      setTimeout(() => {
-        observer.disconnect();
-        reject(new Error(`Element not found: ${selector}`));
-      }, timeout);
-    });
+  function waitForEditableInput(selectors, timeout = 10000) {
+    return waitForElement(selectors, timeout);
   }
 
   // 입력 필드에 값을 설정하고 이벤트 발생
@@ -353,6 +340,102 @@
     return true;
   }
 
+
+  function formatDateForTitle(date) {
+    if (!(date instanceof Date)) return '';
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}.${month}.${day}`;
+  }
+
+  function normalizeDate(year, month, day) {
+    const date = new Date(year, month - 1, day);
+    if (
+      date.getFullYear() !== year ||
+      date.getMonth() !== month - 1 ||
+      date.getDate() !== day
+    ) {
+      return null;
+    }
+    return date;
+  }
+
+  function parseDateText(value) {
+    if (!value) return null;
+
+    const dateMatch = value.trim().match(/^(\d{4})[./-](\d{1,2})[./-](\d{1,2})$/);
+    if (!dateMatch) return null;
+
+    return normalizeDate(Number(dateMatch[1]), Number(dateMatch[2]), Number(dateMatch[3]));
+  }
+
+  function getDateFromInput(element) {
+    if (!element) return null;
+
+    const win = element.ownerDocument?.defaultView;
+    const hasJqueryDatepicker = Boolean(
+      win?.jQuery &&
+      typeof win.jQuery === 'function' &&
+      typeof win.jQuery(element).datepicker === 'function'
+    );
+
+    if (hasJqueryDatepicker) {
+      const picked = win.jQuery(element).datepicker('getDate');
+      if (picked instanceof Date && !Number.isNaN(picked.getTime())) {
+        return normalizeDate(picked.getFullYear(), picked.getMonth() + 1, picked.getDate());
+      }
+    }
+
+    return parseDateText(element.value);
+  }
+
+  function calculateDurationDays(startDate, endDate) {
+    const msPerDay = 24 * 60 * 60 * 1000;
+    const diff = Math.floor((endDate - startDate) / msPerDay);
+    return diff + 1;
+  }
+
+  function setDateInputValue(element, date) {
+    if (!element || !(date instanceof Date)) return false;
+
+    const win = element.ownerDocument?.defaultView;
+    const hasJqueryDatepicker = Boolean(
+      win?.jQuery &&
+      typeof win.jQuery === 'function' &&
+      typeof win.jQuery(element).datepicker === 'function'
+    );
+
+    if (hasJqueryDatepicker) {
+      win.jQuery(element).datepicker('setDate', date);
+    } else {
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const day = String(date.getDate()).padStart(2, '0');
+      element.value = `${year}-${month}-${day}`;
+    }
+
+    element.dispatchEvent(new Event('input', { bubbles: true }));
+    element.dispatchEvent(new Event('change', { bubbles: true }));
+    element.dispatchEvent(new Event('blur', { bubbles: true }));
+
+    return true;
+  }
+
+  function buildTitle(startDate, durationDays) {
+    const titleParts = [settings.department, settings.team, settings.name].filter(Boolean);
+
+    if (startDate instanceof Date) {
+      titleParts.push(formatDateForTitle(startDate));
+    }
+
+    if (durationDays && durationDays > 0) {
+      titleParts.push(`${durationDays}일`);
+    }
+
+    return titleParts.join(' / ');
+  }
+
   // 메인 자동입력 로직
   async function autoFill() {
     console.log('[LSware 자동입력] 자동입력을 시작합니다...');
@@ -363,25 +446,43 @@
     injectStyles();
 
     try {
-      // 제목 필드 입력
-      if (settings.department || settings.team || settings.name) {
-        const today = new Date();
-        const dateStr = `${today.getFullYear()}.${String(today.getMonth() + 1).padStart(2, '0')}.${String(today.getDate()).padStart(2, '0')}`;
-        
-        const titleParts = [
-          settings.department,
-          settings.team,
-          settings.name,
-          dateStr
-        ].filter(Boolean);
-        
-        const titleValue = titleParts.join(' / ');
-        
-        const titleInput = await waitForEditableInput(SELECTORS.title);
-        if (setInputValue(titleInput, titleValue)) {
-          console.log('[LSware 자동입력] 제목 입력 완료:', titleValue);
+      const [titleInput, startDateInput, endDateInput] = await Promise.all([
+        waitForEditableInput(SELECTORS.title),
+        waitForEditableInput(SELECTORS.startDate),
+        waitForEditableInput(SELECTORS.endDate)
+      ]);
+      const durationInput = findElement(SELECTORS.durationDays);
+
+      const updateDurationAndTitle = () => {
+        const startDate = getDateFromInput(startDateInput);
+        const endDate = getDateFromInput(endDateInput);
+
+        let durationDays = null;
+        if (startDate && endDate && startDate <= endDate) {
+          durationDays = calculateDurationDays(startDate, endDate);
+          if (durationInput) {
+            setInputValue(durationInput, String(durationDays));
+          }
         }
-      }
+
+        const titleValue = buildTitle(startDate, durationDays);
+        if (titleValue) {
+          setInputValue(titleInput, titleValue);
+        }
+      };
+
+      // 신청 당일 자동 입력
+      const today = new Date();
+      setDateInputValue(startDateInput, today);
+      setDateInputValue(endDateInput, today);
+      updateDurationAndTitle();
+      console.log('[LSware 자동입력] 신청 당일 기준으로 휴가기간/제목 자동입력 완료');
+
+      // 사용자가 기간 변경 시 일수와 제목 동기화
+      ['input', 'change', 'blur'].forEach((eventName) => {
+        startDateInput.addEventListener(eventName, updateDurationAndTitle);
+        endDateInput.addEventListener(eventName, updateDurationAndTitle);
+      });
 
       // 휴가사유 필드 처리
       if (presets.length > 0) {
