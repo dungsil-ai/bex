@@ -2,6 +2,8 @@
 const departmentInput = document.getElementById('department');
 const teamInput = document.getElementById('team');
 const nameInput = document.getElementById('name');
+const vacationStartDateInput = document.getElementById('vacationStartDate');
+const vacationEndDateInput = document.getElementById('vacationEndDate');
 const enabledCheckbox = document.getElementById('enabled');
 const saveBasicButton = document.getElementById('saveBasic');
 const newPresetInput = document.getElementById('newPreset');
@@ -22,6 +24,8 @@ async function loadSettings() {
       'team',
       'name',
       'enabled',
+      'vacationStartDate',
+      'vacationEndDate',
       'reasonPresets',
       'defaultPresetIndex'
     ]);
@@ -30,6 +34,8 @@ async function loadSettings() {
     teamInput.value = result.team || '';
     nameInput.value = result.name || '';
     enabledCheckbox.checked = result.enabled !== false;
+    vacationStartDateInput.value = result.vacationStartDate || '';
+    vacationEndDateInput.value = result.vacationEndDate || '';
     presets = result.reasonPresets || [];
     defaultPresetIndex = result.defaultPresetIndex ?? -1;
     
@@ -46,12 +52,22 @@ async function loadSettings() {
 
 // 기본 정보 저장
 async function saveBasicSettings() {
+  const vacationStartDate = vacationStartDateInput.value || '';
+  const vacationEndDate = vacationEndDateInput.value || '';
+
+  if (vacationStartDate && vacationEndDate && vacationStartDate > vacationEndDate) {
+    showStatus('휴가 종료일은 시작일보다 빠를 수 없습니다.', 'error');
+    return;
+  }
+
   try {
     await chrome.storage.local.set({
       department: departmentInput.value.trim(),
       team: teamInput.value.trim(),
       name: nameInput.value.trim(),
-      enabled: enabledCheckbox.checked
+      enabled: enabledCheckbox.checked,
+      vacationStartDate,
+      vacationEndDate
     });
     
     showStatus('기본 정보가 저장되었습니다!', 'success');
