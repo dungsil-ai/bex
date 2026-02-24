@@ -27,8 +27,17 @@
 
   // 입력 필드 셀렉터
   const SELECTORS = {
-    title: 'input[data-defaultstr=" 본부 / 팀명 / 이름 / 휴가일자"]',
-    reason: 'textarea[data-defaultstr="(가급적 사유를 구체적으로 기재함)"]'
+    title: [
+      '#subject',
+      'input[name="subject"]',
+      'input[data-defaultstr=" 본부 / 팀명 / 이름 / 휴가일/일수"]',
+      'input[data-defaultstr=" 본부 / 팀명 / 이름 / 휴가일자"]'
+    ],
+    reason: [
+      '#editorForm_6',
+      'textarea[name="editorForm_6"]',
+      'textarea[data-defaultstr="(가급적 사유를 구체적으로 기재함)"]'
+    ]
   };
 
   // Autocomplete UI 스타일 주입
@@ -268,16 +277,26 @@
   }
 
   // DOM이 완전히 로드될 때까지 대기하는 함수
-  function waitForElement(selector, timeout = 10000) {
+  function findElement(selectors) {
+    const selectorList = Array.isArray(selectors) ? selectors : [selectors];
+    for (const selector of selectorList) {
+      const el = document.querySelector(selector);
+      if (el) return el;
+    }
+    return null;
+  }
+
+  function waitForElement(selectors, timeout = 10000) {
+    const selectorList = Array.isArray(selectors) ? selectors : [selectors];
     return new Promise((resolve, reject) => {
-      const element = document.querySelector(selector);
+      const element = findElement(selectorList);
       if (element) {
         resolve(element);
         return;
       }
 
       const observer = new MutationObserver((mutations, obs) => {
-        const el = document.querySelector(selector);
+        const el = findElement(selectorList);
         if (el) {
           obs.disconnect();
           resolve(el);
@@ -291,49 +310,14 @@
 
       setTimeout(() => {
         observer.disconnect();
-        reject(new Error(`Element not found: ${selector}`));
+        reject(new Error(`Element not found: ${selectorList.join(' | ')}`));
       }, timeout);
     });
   }
 
   // .edit 클래스가 추가될 때까지 대기 (input이 활성화된 상태)
-  function waitForEditableInput(selector, timeout = 10000) {
-    return new Promise((resolve, reject) => {
-      // 먼저 요소 찾기
-      const checkElement = () => {
-        const element = document.querySelector(selector);
-        if (element) {
-          return element;
-        }
-        return null;
-      };
-
-      const element = checkElement();
-      if (element) {
-        resolve(element);
-        return;
-      }
-
-      const observer = new MutationObserver((mutations, obs) => {
-        const el = checkElement();
-        if (el) {
-          obs.disconnect();
-          resolve(el);
-        }
-      });
-
-      observer.observe(document.body, {
-        childList: true,
-        subtree: true,
-        attributes: true,
-        attributeFilter: ['class']
-      });
-
-      setTimeout(() => {
-        observer.disconnect();
-        reject(new Error(`Element not found: ${selector}`));
-      }, timeout);
-    });
+  function waitForEditableInput(selectors, timeout = 10000) {
+    return waitForElement(selectors, timeout);
   }
 
   // 입력 필드에 값을 설정하고 이벤트 발생
