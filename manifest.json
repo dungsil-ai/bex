@@ -20,7 +20,10 @@
   },
   "content_scripts": [
     {
-      "matches": ["https://office.lsware.co.kr/*"],
+      "matches": [
+        "https://office.lsware.co.kr/app/approval/document/new",
+        "https://office.lsware.co.kr/app/approval/document/new/*"
+      ],
       "js": ["content/content.js"],
       "run_at": "document_idle"
     }

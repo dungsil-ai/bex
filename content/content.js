@@ -4,7 +4,7 @@
   'use strict';
 
   // URL 패턴: 휴가신청 폼 페이지
-  const FORM_URL_PATTERN = /\/app\/approval\/document\/new\//;
+  const FORM_URL_PATTERN = /\/app\/approval\/document\/new(?:\/|$)/;
 
   // 자동입력 상태 추적
   let filled = false;
