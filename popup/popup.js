@@ -184,7 +184,7 @@ function renderPresets(editIndex = -1) {
     if (index === editIndex) {
       // 수정 모드
       li.innerHTML = `
-        <input type="text" class="edit-input" value="${escapeHtml(preset)}">
+        <input type="text" class="edit-input">
         <div class="preset-actions">
           <button class="btn-icon btn-save" data-index="${index}">저장</button>
           <button class="btn-icon btn-cancel">취소</button>
@@ -192,6 +192,7 @@ function renderPresets(editIndex = -1) {
       `;
       
       const input = li.querySelector('.edit-input');
+      input.value = preset;
       const saveBtn = li.querySelector('.btn-save');
       const cancelBtn = li.querySelector('.btn-cancel');
       
