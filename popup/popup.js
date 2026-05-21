@@ -53,6 +53,7 @@ async function saveBasicSettings() {
       name: nameInput.value.trim(),
       enabled: enabledCheckbox.checked
     });
+    await chrome.storage.local.remove(['vacationStartDate', 'vacationEndDate']);
     
     showStatus('기본 정보가 저장되었습니다!', 'success');
   } catch (error) {
